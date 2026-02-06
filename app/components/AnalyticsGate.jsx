@@ -1,10 +1,10 @@
 'use client';
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Script from 'next/script';
 
 export default function AnalyticsGate({ GA_ID }) {
   const [enabled, setEnabled] = useState(false);
-    useLayoutEffect(() => {
+  useEffect(() => {
     try {
       const href = window.location.href || '';
       setEnabled(href.includes('hzm0321'));

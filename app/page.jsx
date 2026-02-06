@@ -36,6 +36,14 @@ function SettingsIcon(props) {
   );
 }
 
+function CloudIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M20 17.5a4.5 4.5 0 0 0-1.5-8.77A6 6 0 1 0 6 16.5H18a3.5 3.5 0 0 0 2-6.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function RefreshIcon(props) {
   return (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
@@ -1177,6 +1185,51 @@ function SuccessModal({ message, onClose }) {
   );
 }
 
+function CloudConfigModal({ onConfirm, onCancel }) {
+  return (
+    <motion.div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="云端同步提示"
+      onClick={onCancel}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="glass card modal"
+        style={{ maxWidth: '420px' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="title" style={{ marginBottom: 12, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <CloudIcon width="20" height="20" />
+            <span>云端暂无配置</span>
+          </div>
+          <button className="icon-button" onClick={onCancel} style={{ border: 'none', background: 'transparent' }}>
+            <CloseIcon width="20" height="20" />
+          </button>
+        </div>
+        <p className="muted" style={{ marginBottom: 20, fontSize: '14px', lineHeight: '1.6' }}>
+          是否将本地配置同步到云端？
+        </p>
+        <div className="row" style={{ flexDirection: 'column', gap: 12 }}>
+          <button className="button" onClick={onConfirm}>
+            同步本地到云端
+          </button>
+          <button className="button secondary" onClick={onCancel}>
+            暂不同步
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function ConfirmModal({ title, message, onConfirm, onCancel, confirmText = "确定删除" }) {
   return (
     <motion.div
@@ -1733,6 +1786,7 @@ export default function HomePage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginSuccess, setLoginSuccess] = useState('');
+  const [loginOtp, setLoginOtp] = useState('');
 
   // 反馈弹窗状态
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -1763,6 +1817,7 @@ export default function HomePage() {
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const [isMobile, setIsMobile] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const checkMobile = () => setIsMobile(window.innerWidth <= 640);
@@ -1863,6 +1918,8 @@ export default function HomePage() {
     const now = new Date();
     const isAfter9 = now.getHours() >= 9;
     const hasTodayData = fund.jzrq === todayStr;
+    const hasTodayValuation = typeof fund.gztime === 'string' && fund.gztime.startsWith(todayStr);
+    const canCalcTodayProfit = hasTodayData || hasTodayValuation;
 
     // 如果是交易日且9点以后，且今日净值未出，则强制使用估值（隐藏涨跌幅列模式）
     const useValuation = isTradingDay && isAfter9 && !hasTodayData;
@@ -1875,10 +1932,14 @@ export default function HomePage() {
       currentNav = Number(fund.dwjz);
       if (!currentNav) return null;
 
-      const amount = holding.share * currentNav;
-      // 优先用 zzl (真实涨跌幅), 降级用 gszzl
-      const rate = fund.zzl !== undefined ? Number(fund.zzl) : (Number(fund.gszzl) || 0);
-      profitToday = amount - (amount / (1 + rate / 100));
+      if (canCalcTodayProfit) {
+        const amount = holding.share * currentNav;
+        // 优先用 zzl (真实涨跌幅), 降级用 gszzl
+        const rate = fund.zzl !== undefined ? Number(fund.zzl) : (Number(fund.gszzl) || 0);
+        profitToday = amount - (amount / (1 + rate / 100));
+      } else {
+        profitToday = null;
+      }
     } else {
       // 否则使用估值
       currentNav = fund.estPricedCoverage > 0.05
@@ -1887,10 +1948,14 @@ export default function HomePage() {
 
       if (!currentNav) return null;
 
-      const amount = holding.share * currentNav;
-      // 估值涨跌幅
-      const gzChange = fund.estPricedCoverage > 0.05 ? fund.estGszzl : (Number(fund.gszzl) || 0);
-      profitToday = amount - (amount / (1 + gzChange / 100));
+      if (canCalcTodayProfit) {
+        const amount = holding.share * currentNav;
+        // 估值涨跌幅
+        const gzChange = fund.estPricedCoverage > 0.05 ? fund.estGszzl : (Number(fund.gszzl) || 0);
+        profitToday = amount - (amount / (1 + gzChange / 100));
+      } else {
+        profitToday = null;
+      }
     }
 
     // 持仓金额
@@ -2053,6 +2118,11 @@ export default function HomePage() {
 
   // 成功提示弹窗
   const [successModal, setSuccessModal] = useState({ open: false, message: '' });
+  const [cloudConfigModal, setCloudConfigModal] = useState({ open: false, userId: null });
+  const syncDebounceRef = useRef(null);
+  const lastSyncedRef = useRef('');
+  const skipSyncRef = useRef(false);
+  const userIdRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2062,6 +2132,56 @@ export default function HomePage() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    userIdRef.current = user?.id || null;
+  }, [user]);
+
+  useEffect(() => {
+    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'refreshMs', 'holdings']);
+    const scheduleSync = () => {
+      if (!userIdRef.current) return;
+      if (skipSyncRef.current) return;
+      if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
+      syncDebounceRef.current = setTimeout(() => {
+        const payload = collectLocalPayload();
+        const next = getComparablePayload(payload);
+        if (next === lastSyncedRef.current) return;
+        lastSyncedRef.current = next;
+        syncUserConfig(userIdRef.current, false);
+      }, 9000);
+    };
+
+    const originalSetItem = localStorage.setItem.bind(localStorage);
+    const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+    const originalClear = localStorage.clear.bind(localStorage);
+
+    localStorage.setItem = (key, value) => {
+      originalSetItem(key, value);
+      if (keys.has(key)) scheduleSync();
+    };
+    localStorage.removeItem = (key) => {
+      originalRemoveItem(key);
+      if (keys.has(key)) scheduleSync();
+    };
+    localStorage.clear = () => {
+      originalClear();
+      scheduleSync();
+    };
+
+    const onStorage = (e) => {
+      if (!e.key || keys.has(e.key)) scheduleSync();
+    };
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      localStorage.setItem = originalSetItem;
+      localStorage.removeItem = originalRemoveItem;
+      localStorage.clear = originalClear;
+      window.removeEventListener('storage', onStorage);
+      if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
+    };
   }, []);
 
   const toggleFavorite = (code) => {
@@ -2208,11 +2328,6 @@ export default function HomePage() {
       if (Array.isArray(savedGroups)) {
         setGroups(savedGroups);
       }
-      // 加载视图模式
-      const savedViewMode = localStorage.getItem('viewMode');
-      if (savedViewMode === 'card' || savedViewMode === 'list') {
-        setViewMode(savedViewMode);
-      }
       // 加载持仓数据
       const savedHoldings = JSON.parse(localStorage.getItem('holdings') || '{}');
       if (savedHoldings && typeof savedHoldings === 'object') {
@@ -2226,6 +2341,9 @@ export default function HomePage() {
     // 获取当前 session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchCloudConfig(session.user.id);
+      }
     });
 
     // 监听认证状态变化
@@ -2236,19 +2354,42 @@ export default function HomePage() {
         setLoginEmail('');
         setLoginSuccess('');
         setLoginError('');
+        fetchCloudConfig(session.user.id);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // 发送魔术链接邮件
-  const handleSendMagicLink = async (e) => {
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`user-configs-${user.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+        const incoming = payload?.new?.data;
+        if (!incoming || typeof incoming !== 'object') return;
+        const incomingComparable = getComparablePayload(incoming);
+        if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
+        await applyCloudConfig(incoming);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+        const incoming = payload?.new?.data;
+        if (!incoming || typeof incoming !== 'object') return;
+        const incomingComparable = getComparablePayload(incoming);
+        if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
+        await applyCloudConfig(incoming);
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  const handleSendOtp = async (e) => {
     e.preventDefault();
     setLoginError('');
     setLoginSuccess('');
 
-    // 简单的邮箱格式验证
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!loginEmail.trim()) {
       setLoginError('请输入邮箱地址');
@@ -2264,29 +2405,63 @@ export default function HomePage() {
       const { error } = await supabase.auth.signInWithOtp({
         email: loginEmail.trim(),
         options: {
-          emailRedirectTo: window.location.origin
+          shouldCreateUser: true
         }
       });
       if (error) throw error;
-      setLoginSuccess('验证邮件已发送，请查收邮箱并点击链接完成登录');
+      setLoginSuccess('验证码已发送，请查收邮箱输入验证码完成注册/登录');
     } catch (err) {
       if (err.message?.includes('rate limit')) {
         setLoginError('请求过于频繁，请稍后再试');
       } else if (err.message?.includes('network')) {
         setLoginError('网络错误，请检查网络连接');
       } else {
-        setLoginError(err.message || '发送验证邮件失败，请稍后再试');
+        setLoginError(err.message || '发送验证码失败，请稍后再试');
       }
     } finally {
       setLoginLoading(false);
     }
   };
 
+  const handleVerifyEmailOtp = async () => {
+    setLoginError('');
+    if (!loginOtp || loginOtp.length < 4) {
+      setLoginError('请输入邮箱中的验证码');
+      return;
+    }
+    try {
+      setLoginLoading(true);
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: loginEmail.trim(),
+        token: loginOtp.trim(),
+        type: 'email'
+      });
+      if (error) throw error;
+      if (data?.user) {
+        setLoginModalOpen(false);
+        setLoginEmail('');
+        setLoginOtp('');
+        setLoginSuccess('');
+        setLoginError('');
+        fetchCloudConfig(data.user.id);
+      }
+    } catch (err) {
+      setLoginError(err.message || '验证失败，请检查验证码或稍后再试');
+    }
+    setLoginLoading(false);
+  };
+
   // 登出
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      if (error?.code === 'session_not_found') {
+        await supabase.auth.signOut({ scope: 'local' });
+      } else if (error) {
+        throw error;
+      }
       setUserMenuOpen(false);
+      setUser(null);
     } catch (err) {
       console.error('登出失败', err);
     }
@@ -2769,7 +2944,6 @@ export default function HomePage() {
   const toggleViewMode = () => {
     const nextMode = viewMode === 'card' ? 'list' : 'card';
     setViewMode(nextMode);
-    localStorage.setItem('viewMode', nextMode);
   };
 
   const requestRemoveFund = (fund) => {
@@ -2893,6 +3067,187 @@ export default function HomePage() {
   const importFileRef = useRef(null);
   const [importMsg, setImportMsg] = useState('');
 
+  function getComparablePayload(payload) {
+    if (!payload || typeof payload !== 'object') return '';
+    return JSON.stringify({
+      funds: Array.isArray(payload.funds) ? payload.funds : [],
+      favorites: Array.isArray(payload.favorites) ? payload.favorites : [],
+      groups: Array.isArray(payload.groups) ? payload.groups : [],
+      collapsedCodes: Array.isArray(payload.collapsedCodes) ? payload.collapsedCodes : [],
+      refreshMs: Number.isFinite(payload.refreshMs) ? payload.refreshMs : 30000,
+      holdings: payload.holdings && typeof payload.holdings === 'object' ? payload.holdings : {}
+    });
+  }
+
+  const collectLocalPayload = () => {
+    try {
+      const funds = JSON.parse(localStorage.getItem('funds') || '[]');
+      const favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+      const groups = JSON.parse(localStorage.getItem('groups') || '[]');
+      const collapsedCodes = JSON.parse(localStorage.getItem('collapsedCodes') || '[]');
+      const fundCodes = new Set(
+        Array.isArray(funds)
+          ? funds.map((f) => f?.code).filter(Boolean)
+          : []
+      );
+      const holdings = JSON.parse(localStorage.getItem('holdings') || '{}');
+      const cleanedHoldings = holdings && typeof holdings === 'object' && !Array.isArray(holdings)
+        ? Object.entries(holdings).reduce((acc, [code, value]) => {
+          if (!fundCodes.has(code) || !value || typeof value !== 'object') return acc;
+          const parsedShare = typeof value.share === 'number'
+            ? value.share
+            : typeof value.share === 'string'
+              ? Number(value.share)
+              : NaN;
+          const parsedCost = typeof value.cost === 'number'
+            ? value.cost
+            : typeof value.cost === 'string'
+              ? Number(value.cost)
+              : NaN;
+          const nextShare = Number.isFinite(parsedShare) ? parsedShare : null;
+          const nextCost = Number.isFinite(parsedCost) ? parsedCost : null;
+          if (nextShare === null && nextCost === null) return acc;
+          acc[code] = {
+            ...value,
+            share: nextShare,
+            cost: nextCost
+          };
+          return acc;
+        }, {})
+        : {};
+      const cleanedFavorites = Array.isArray(favorites)
+        ? favorites.filter((code) => fundCodes.has(code))
+        : [];
+      const cleanedCollapsed = Array.isArray(collapsedCodes)
+        ? collapsedCodes.filter((code) => fundCodes.has(code))
+        : [];
+      const cleanedGroups = Array.isArray(groups)
+        ? groups.map((group) => ({
+          ...group,
+          codes: Array.isArray(group?.codes)
+            ? group.codes.filter((code) => fundCodes.has(code))
+            : []
+        }))
+        : [];
+      return {
+        version: 1,
+        funds,
+        favorites: cleanedFavorites,
+        groups: cleanedGroups,
+        collapsedCodes: cleanedCollapsed,
+        refreshMs: parseInt(localStorage.getItem('refreshMs') || '30000', 10),
+        holdings: cleanedHoldings,
+        exportedAt: new Date().toISOString()
+      };
+    } catch {
+      return {
+        version: 1,
+        funds: [],
+        favorites: [],
+        groups: [],
+        collapsedCodes: [],
+        refreshMs: 30000,
+        holdings: {},
+        exportedAt: new Date().toISOString()
+      };
+    }
+  };
+
+  const applyCloudConfig = async (cloudData) => {
+    if (!cloudData || typeof cloudData !== 'object') return;
+    skipSyncRef.current = true;
+    try {
+      const nextFunds = Array.isArray(cloudData.funds) ? dedupeByCode(cloudData.funds) : [];
+      setFunds(nextFunds);
+      localStorage.setItem('funds', JSON.stringify(nextFunds));
+
+      const nextFavorites = Array.isArray(cloudData.favorites) ? cloudData.favorites : [];
+      setFavorites(new Set(nextFavorites));
+      localStorage.setItem('favorites', JSON.stringify(nextFavorites));
+
+      const nextGroups = Array.isArray(cloudData.groups) ? cloudData.groups : [];
+      setGroups(nextGroups);
+      localStorage.setItem('groups', JSON.stringify(nextGroups));
+
+      const nextCollapsed = Array.isArray(cloudData.collapsedCodes) ? cloudData.collapsedCodes : [];
+      setCollapsedCodes(new Set(nextCollapsed));
+      localStorage.setItem('collapsedCodes', JSON.stringify(nextCollapsed));
+
+      const nextRefreshMs = Number.isFinite(cloudData.refreshMs) && cloudData.refreshMs >= 5000 ? cloudData.refreshMs : 30000;
+      setRefreshMs(nextRefreshMs);
+      setTempSeconds(Math.round(nextRefreshMs / 1000));
+      localStorage.setItem('refreshMs', String(nextRefreshMs));
+
+      if (cloudData.viewMode === 'card' || cloudData.viewMode === 'list') {
+        setViewMode(cloudData.viewMode);
+      }
+
+      const nextHoldings = cloudData.holdings && typeof cloudData.holdings === 'object' ? cloudData.holdings : {};
+      setHoldings(nextHoldings);
+      localStorage.setItem('holdings', JSON.stringify(nextHoldings));
+
+      if (nextFunds.length) {
+        const codes = Array.from(new Set(nextFunds.map((f) => f.code)));
+        if (codes.length) await refreshAll(codes);
+      }
+
+      const payload = collectLocalPayload();
+      lastSyncedRef.current = getComparablePayload(payload);
+    } finally {
+      skipSyncRef.current = false;
+    }
+  };
+
+  const fetchCloudConfig = async (userId) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from('user_configs')
+        .select('id, data')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        const { error: insertError } = await supabase
+          .from('user_configs')
+          .insert({ user_id: userId });
+        if (insertError) throw insertError;
+        setCloudConfigModal({ open: true, userId });
+        return;
+      }
+      if (data?.data && typeof data.data === 'object' && Object.keys(data.data).length > 0) {
+        await applyCloudConfig(data.data);
+        return;
+      }
+      setCloudConfigModal({ open: true, userId });
+    } catch (e) {
+      console.error('获取云端配置失败', e);
+    }
+  };
+
+  const syncUserConfig = async (userId, showTip = true) => {
+    if (!userId) return;
+    try {
+      const payload = collectLocalPayload();
+      const { error: updateError } = await supabase
+        .from('user_configs')
+        .update({ data: payload, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+      if (updateError) throw updateError;
+      if (showTip) {
+        setSuccessModal({ open: true, message: '已同步云端配置' });
+      }
+    } catch (e) {
+      console.error('同步云端配置异常', e);
+    }
+  };
+
+  const handleSyncLocalConfig = async () => {
+    const userId = cloudConfigModal.userId;
+    setCloudConfigModal({ open: false, userId: null });
+    await syncUserConfig(userId);
+  };
+
   const exportLocalData = async () => {
     try {
       const payload = {
@@ -2902,7 +3257,7 @@ export default function HomePage() {
         groups: JSON.parse(localStorage.getItem('groups') || '[]'),
         collapsedCodes: JSON.parse(localStorage.getItem('collapsedCodes') || '[]'),
         refreshMs: parseInt(localStorage.getItem('refreshMs') || '30000', 10),
-        viewMode: localStorage.getItem('viewMode') || 'card',
+        viewMode,
         holdings: JSON.parse(localStorage.getItem('holdings') || '{}'),
         exportedAt: new Date().toISOString()
       };
@@ -3007,7 +3362,6 @@ export default function HomePage() {
         }
         if (data.viewMode === 'card' || data.viewMode === 'list') {
           setViewMode(data.viewMode);
-          localStorage.setItem('viewMode', data.viewMode);
         }
 
         if (data.holdings && typeof data.holdings === 'object') {
@@ -3045,6 +3399,8 @@ export default function HomePage() {
       groupManageOpen ||
       groupModalOpen ||
       successModal.open ||
+      cloudConfigModal.open ||
+      logoutConfirmOpen ||
       holdingModal.open ||
       actionModal.open ||
       tradeModal.open ||
@@ -3069,6 +3425,8 @@ export default function HomePage() {
     groupManageOpen,
     groupModalOpen,
     successModal.open,
+    cloudConfigModal.open,
+    logoutConfirmOpen,
     holdingModal.open,
     actionModal.open,
     tradeModal.open,
@@ -3177,7 +3535,13 @@ export default function HomePage() {
                         <SettingsIcon width="16" height="16" />
                         <span>设置</span>
                       </button>
-                      <button className="user-menu-item danger" onClick={handleLogout}>
+                      <button
+                        className="user-menu-item danger"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          setLogoutConfirmOpen(true);
+                        }}
+                      >
                         <LogoutIcon width="16" height="16" />
                         <span>登出</span>
                       </button>
@@ -3382,7 +3746,7 @@ export default function HomePage() {
               <div className="view-toggle" style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '2px' }}>
                 <button
                   className={`icon-button ${viewMode === 'card' ? 'active' : ''}`}
-                  onClick={() => { setViewMode('card'); localStorage.setItem('viewMode', 'card'); }}
+                  onClick={() => { setViewMode('card'); }}
                   style={{ border: 'none', width: '32px', height: '32px', background: viewMode === 'card' ? 'var(--primary)' : 'transparent', color: viewMode === 'card' ? '#05263b' : 'var(--muted)' }}
                   title="卡片视图"
                 >
@@ -3390,7 +3754,7 @@ export default function HomePage() {
                 </button>
                 <button
                   className={`icon-button ${viewMode === 'list' ? 'active' : ''}`}
-                  onClick={() => { setViewMode('list'); localStorage.setItem('viewMode', 'list'); }}
+                  onClick={() => { setViewMode('list'); }}
                   style={{ border: 'none', width: '32px', height: '32px', background: viewMode === 'list' ? 'var(--primary)' : 'transparent', color: viewMode === 'list' ? '#05263b' : 'var(--muted)' }}
                   title="表格视图"
                 >
@@ -4029,6 +4393,21 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {logoutConfirmOpen && (
+          <ConfirmModal
+            title="确认登出"
+            message="确定要退出当前账号吗？"
+            confirmText="确认登出"
+            onConfirm={() => {
+              setLogoutConfirmOpen(false);
+              handleLogout();
+            }}
+            onCancel={() => setLogoutConfirmOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
       <div className="footer">
         <p style={{ marginBottom: 8 }}>数据源：实时估值与重仓直连东方财富，仅供个人学习及参考使用。数据可能存在延迟，不作为任何投资建议</p>
         <p style={{ marginBottom: 12 }}>注：估算数据与真实结算数据会有1%左右误差，非股票型基金误差较大</p>
@@ -4208,6 +4587,15 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {cloudConfigModal.open && (
+          <CloudConfigModal
+            onConfirm={handleSyncLocalConfig}
+            onCancel={() => setCloudConfigModal({ open: false, userId: null })}
+          />
+        )}
+      </AnimatePresence>
+
       {settingsOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="设置" onClick={() => setSettingsOpen(false)}>
           <div className="glass card modal" onClick={(e) => e.stopPropagation()}>
@@ -4299,27 +4687,21 @@ export default function HomePage() {
               <span className="muted">使用邮箱验证登录</span>
             </div>
 
-            <form onSubmit={handleSendMagicLink}>
+            <form onSubmit={handleSendOtp}>
               <div className="form-group" style={{ marginBottom: 16 }}>
                 <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>
-                  输入您的邮箱地址，我们将发送一封验证邮件
+                  请输入邮箱，我们将发送验证码到您的邮箱
                 </div>
                 <input
+                  style={{width: '100%'}}
                   className="input"
                   type="email"
                   placeholder="your@email.com"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  disabled={loginLoading}
-                  autoFocus
+                  disabled={loginLoading || !!loginSuccess}
                 />
               </div>
-
-              {loginError && (
-                <div className="login-message error" style={{ marginBottom: 12 }}>
-                  <span>{loginError}</span>
-                </div>
-              )}
 
               {loginSuccess && (
                 <div className="login-message success" style={{ marginBottom: 12 }}>
@@ -4327,6 +4709,27 @@ export default function HomePage() {
                 </div>
               )}
 
+              {loginSuccess && (
+                <div className="form-group" style={{ marginBottom: 16 }}>
+                  <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>
+                    请输入邮箱验证码以完成注册/登录
+                  </div>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="输入验证码"
+                    value={loginOtp}
+                    onChange={(e) => setLoginOtp(e.target.value)}
+                    disabled={loginLoading}
+                    maxLength={6}
+                  />
+                </div>
+              )}
+              {loginError && (
+                <div className="login-message error" style={{ marginBottom: 12 }}>
+                  <span>{loginError}</span>
+                </div>
+              )}
               <div className="row" style={{ justifyContent: 'flex-end', gap: 12 }}>
                 <button
                   type="button"
@@ -4336,6 +4739,7 @@ export default function HomePage() {
                     setLoginError('');
                     setLoginSuccess('');
                     setLoginEmail('');
+                    setLoginOtp('');
                   }}
                   disabled={loginLoading}
                 >
@@ -4343,10 +4747,11 @@ export default function HomePage() {
                 </button>
                 <button
                   className="button"
-                  type="submit"
-                  disabled={loginLoading || loginSuccess}
+                  type={loginSuccess ? 'button' : 'submit'}
+                  onClick={loginSuccess ? handleVerifyEmailOtp : undefined}
+                  disabled={loginLoading || (loginSuccess && !loginOtp)}
                 >
-                  {loginLoading ? '发送中...' : loginSuccess ? '已发送' : '发送验证邮件'}
+                  {loginLoading ? '处理中...' : loginSuccess ? '确认验证码' : '发送邮箱验证码'}
                 </button>
               </div>
             </form>

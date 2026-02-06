@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // Supabase 配置
 // 注意：此处使用 publishable key，可安全在客户端使用
-const supabaseUrl = 'https://mouvsqlmgymsaxikvqsh.supabase.co/auth/v1/otp';
+const supabaseUrl = 'https://mouvsqlmgymsaxikvqsh.supabase.co';
 const supabaseAnonKey = 'sb_publishable_c5f58knbVz8UgOh6L88MUQ_p9j8c1Q-';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
