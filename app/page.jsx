@@ -3339,13 +3339,10 @@ export default function HomePage() {
         const cloudComparable = getComparablePayload(data.data);
 
         if (localComparable !== cloudComparable) {
-          const cloudTime = new Date(data.updated_at || 0).getTime();
-          const localTime = new Date(localStorage.getItem('localUpdatedAt') || 0).getTime();
-          
-          if (localTime > cloudTime + 2000) {
-            setCloudConfigModal({ open: true, userId, type: 'conflict', cloudData: data.data });
-            return;
-          }
+          // 如果数据不一致，无论时间戳如何，都提示用户
+          // 用户可以选择使用本地数据覆盖云端，或者使用云端数据覆盖本地
+          setCloudConfigModal({ open: true, userId, type: 'conflict', cloudData: data.data });
+          return;
         }
 
         await applyCloudConfig(data.data, data.updated_at);
