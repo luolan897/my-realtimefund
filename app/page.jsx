@@ -2451,6 +2451,7 @@ export default function HomePage() {
   const lastSyncedRef = useRef('');
   const skipSyncRef = useRef(false);
   const userIdRef = useRef(null);
+  const dirtyKeysRef = useRef(new Set()); // 记录发生变化的字段
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2482,11 +2483,32 @@ export default function HomePage() {
     if (skipSyncRef.current) return;
     if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
     syncDebounceRef.current = setTimeout(() => {
-      const payload = collectLocalPayload();
-      const next = getComparablePayload(payload);
-      if (next === lastSyncedRef.current) return;
-      lastSyncedRef.current = next;
-      syncUserConfig(userIdRef.current, false);
+      // 收集脏数据
+      const dirtyKeys = new Set(dirtyKeysRef.current);
+      // 如果没有脏数据，且不是首次同步（可以增加其他判断），则不处理
+      // 但这里 scheduleSync 通常是由 storage 触发，所以应该有脏数据
+      // 除非是初次加载
+      if (dirtyKeys.size === 0) {
+        // Fallback to full sync if needed, or just return
+        // 这里为了保险，如果是空的，我们做全量
+        // 但通常 dirtyKeysRef 应该被填充了
+      }
+      
+      const payload = collectLocalPayload(dirtyKeys.size > 0 ? dirtyKeys : null);
+      
+      // 清空脏数据标记
+      dirtyKeysRef.current.clear();
+
+      // 计算 hash 比较是否真的变了（对于部分更新，这个比较可能意义不大，除非我们也部分比较）
+      // 这里简化逻辑：如果是部分更新，直接发送
+      if (dirtyKeys.size > 0) {
+        syncUserConfig(userIdRef.current, false, payload, true);
+      } else {
+        const next = getComparablePayload(payload);
+        if (next === lastSyncedRef.current) return;
+        lastSyncedRef.current = next;
+        syncUserConfig(userIdRef.current, false, payload, false);
+      }
     }, 2000);
   }, []);
 
@@ -2494,6 +2516,9 @@ export default function HomePage() {
     const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode']);
     const triggerSync = (key, prevValue, nextValue) => {
       if (keys.has(key)) {
+        // 标记为脏数据
+        dirtyKeysRef.current.add(key);
+
         if (key === 'funds') {
           const prevSig = getFundCodesSignature(prevValue);
           const nextSig = getFundCodesSignature(nextValue);
@@ -3352,78 +3377,105 @@ export default function HomePage() {
     });
   }
 
-  const collectLocalPayload = () => {
+  const collectLocalPayload = (keys = null) => {
     try {
-      const funds = JSON.parse(localStorage.getItem('funds') || '[]');
-      const favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
-      const groups = JSON.parse(localStorage.getItem('groups') || '[]');
-      const collapsedCodes = JSON.parse(localStorage.getItem('collapsedCodes') || '[]');
-      const collapsedTrends = JSON.parse(localStorage.getItem('collapsedTrends') || '[]');
-      const viewMode = localStorage.getItem('viewMode') === 'list' ? 'list' : 'card';
-      const fundCodes = new Set(
-        Array.isArray(funds)
-          ? funds.map((f) => f?.code).filter(Boolean)
-          : []
-      );
-      const holdings = JSON.parse(localStorage.getItem('holdings') || '{}');
-      const pendingTrades = JSON.parse(localStorage.getItem('pendingTrades') || '[]');
-      const cleanedHoldings = holdings && typeof holdings === 'object' && !Array.isArray(holdings)
-        ? Object.entries(holdings).reduce((acc, [code, value]) => {
-          if (!fundCodes.has(code) || !value || typeof value !== 'object') return acc;
-          const parsedShare = typeof value.share === 'number'
-            ? value.share
-            : typeof value.share === 'string'
-              ? Number(value.share)
-              : NaN;
-          const parsedCost = typeof value.cost === 'number'
-            ? value.cost
-            : typeof value.cost === 'string'
-              ? Number(value.cost)
-              : NaN;
-          const nextShare = Number.isFinite(parsedShare) ? parsedShare : null;
-          const nextCost = Number.isFinite(parsedCost) ? parsedCost : null;
-          if (nextShare === null && nextCost === null) return acc;
-          acc[code] = {
-            ...value,
-            share: nextShare,
-            cost: nextCost
-          };
-          return acc;
-        }, {})
-        : {};
-      const cleanedFavorites = Array.isArray(favorites)
-        ? favorites.filter((code) => fundCodes.has(code))
-        : [];
-      const cleanedCollapsed = Array.isArray(collapsedCodes)
-        ? collapsedCodes.filter((code) => fundCodes.has(code))
-        : [];
-      const cleanedCollapsedTrends = Array.isArray(collapsedTrends)
-        ? collapsedTrends.filter((code) => fundCodes.has(code))
-        : [];
-      const cleanedGroups = Array.isArray(groups)
-        ? groups.map((group) => ({
-          ...group,
-          codes: Array.isArray(group?.codes)
-            ? group.codes.filter((code) => fundCodes.has(code))
+      const all = {};
+
+      if (!keys || keys.has('funds')) {
+        all.funds = JSON.parse(localStorage.getItem('funds') || '[]');
+      }
+      if (!keys || keys.has('favorites')) {
+        all.favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+      }
+      if (!keys || keys.has('groups')) {
+        all.groups = JSON.parse(localStorage.getItem('groups') || '[]');
+      }
+      if (!keys || keys.has('collapsedCodes')) {
+        all.collapsedCodes = JSON.parse(localStorage.getItem('collapsedCodes') || '[]');
+      }
+      if (!keys || keys.has('collapsedTrends')) {
+        all.collapsedTrends = JSON.parse(localStorage.getItem('collapsedTrends') || '[]');
+      }
+      if (!keys || keys.has('viewMode')) {
+        all.viewMode = localStorage.getItem('viewMode') === 'list' ? 'list' : 'card';
+      }
+      if (!keys || keys.has('refreshMs')) {
+        all.refreshMs = parseInt(localStorage.getItem('refreshMs') || '30000', 10);
+      }
+      if (!keys || keys.has('holdings')) {
+        all.holdings = JSON.parse(localStorage.getItem('holdings') || '{}');
+      }
+      if (!keys || keys.has('pendingTrades')) {
+        all.pendingTrades = JSON.parse(localStorage.getItem('pendingTrades') || '[]');
+      }
+
+      // 如果是全量收集（keys 为 null），进行完整的数据清洗和验证逻辑
+      if (!keys) {
+        const fundCodes = new Set(
+          Array.isArray(all.funds)
+            ? all.funds.map((f) => f?.code).filter(Boolean)
             : []
-        }))
-        : [];
-      const cleanedPendingTrades = Array.isArray(pendingTrades)
-        ? pendingTrades.filter((trade) => trade && fundCodes.has(trade.fundCode))
-        : [];
-      return {
-        funds,
-        favorites: cleanedFavorites,
-        groups: cleanedGroups,
-        collapsedCodes: cleanedCollapsed,
-        collapsedTrends: cleanedCollapsedTrends,
-        refreshMs: parseInt(localStorage.getItem('refreshMs') || '30000', 10),
-        holdings: cleanedHoldings,
-        pendingTrades: cleanedPendingTrades,
-        viewMode,
-        exportedAt: nowInTz().toISOString()
-      };
+        );
+        
+        const cleanedHoldings = all.holdings && typeof all.holdings === 'object' && !Array.isArray(all.holdings)
+          ? Object.entries(all.holdings).reduce((acc, [code, value]) => {
+            if (!fundCodes.has(code) || !value || typeof value !== 'object') return acc;
+            const parsedShare = typeof value.share === 'number'
+              ? value.share
+              : typeof value.share === 'string'
+                ? Number(value.share)
+                : NaN;
+            const parsedCost = typeof value.cost === 'number'
+              ? value.cost
+              : typeof value.cost === 'string'
+                ? Number(value.cost)
+                : NaN;
+            const nextShare = Number.isFinite(parsedShare) ? parsedShare : null;
+            const nextCost = Number.isFinite(parsedCost) ? parsedCost : null;
+            if (nextShare === null && nextCost === null) return acc;
+            acc[code] = {
+              ...value,
+              share: nextShare,
+              cost: nextCost
+            };
+            return acc;
+          }, {})
+          : {};
+
+        const cleanedFavorites = Array.isArray(all.favorites)
+          ? all.favorites.filter((code) => fundCodes.has(code))
+          : [];
+        const cleanedCollapsed = Array.isArray(all.collapsedCodes)
+          ? all.collapsedCodes.filter((code) => fundCodes.has(code))
+          : [];
+        const cleanedCollapsedTrends = Array.isArray(all.collapsedTrends)
+          ? all.collapsedTrends.filter((code) => fundCodes.has(code))
+          : [];
+        const cleanedGroups = Array.isArray(all.groups)
+          ? all.groups.map(g => ({
+              ...g,
+              codes: Array.isArray(g.codes) ? g.codes.filter(c => fundCodes.has(c)) : []
+            }))
+          : [];
+        
+        return {
+          funds: all.funds,
+          favorites: cleanedFavorites,
+          groups: cleanedGroups,
+          collapsedCodes: cleanedCollapsed,
+          collapsedTrends: cleanedCollapsedTrends,
+          refreshMs: all.refreshMs,
+          holdings: cleanedHoldings,
+          pendingTrades: all.pendingTrades,
+          viewMode: all.viewMode
+        };
+      }
+
+      // 如果是部分收集，直接返回读取到的字段
+      return all;
     } catch {
+      // 安全回退：如果是增量更新失败，返回空对象避免覆盖；全量更新则返回默认空配置
+      if (keys) return {};
       return {
         funds: [],
         favorites: [],
@@ -3531,26 +3583,62 @@ export default function HomePage() {
     }
   };
 
-  const syncUserConfig = async (userId, showTip = true) => {
+  const syncUserConfig = async (userId, showTip = true, payload = null, isPartial = false) => {
     if (!userId) {
       showToast(`userId 不存在，请重新登录`, 'error');
       return;
     }
     try {
       setIsSyncing(true);
-      const payload = collectLocalPayload();
+      const dataToSync = payload || collectLocalPayload(); // Fallback to full sync if no payload
       const now = nowInTz().toISOString();
-      const { data: upsertData, error: updateError } = await supabase
-        .from('user_configs')
-        .upsert(
-          {
-            user_id: userId,
-            data: payload,
-            updated_at: now
-          },
-          { onConflict: 'user_id' }
-        )
-        .select();
+      
+      let upsertData = null;
+      let updateError = null;
+
+      if (isPartial) {
+        // 增量更新：使用 RPC 调用
+        const { error: rpcError } = await supabase.rpc('update_user_config_partial', {
+          payload: dataToSync
+        });
+        
+        if (rpcError) {
+          console.error('增量同步失败，尝试全量同步', rpcError);
+          // RPC 失败回退到全量更新
+          const fullPayload = collectLocalPayload();
+          const { data, error } = await supabase
+            .from('user_configs')
+            .upsert(
+              {
+                user_id: userId,
+                data: fullPayload,
+                updated_at: now
+              },
+              { onConflict: 'user_id' }
+            )
+            .select();
+          upsertData = data;
+          updateError = error;
+        } else {
+          // RPC 成功，模拟 upsertData 格式以便后续逻辑通过
+          upsertData = [{ id: 'rpc_success' }];
+        }
+      } else {
+        // 全量更新
+        const { data, error } = await supabase
+          .from('user_configs')
+          .upsert(
+            {
+              user_id: userId,
+              data: dataToSync,
+              updated_at: now
+            },
+            { onConflict: 'user_id' }
+          )
+          .select();
+        upsertData = data;
+        updateError = error;
+      }
 
       if (updateError) throw updateError;
       if (!upsertData || upsertData.length === 0) {
