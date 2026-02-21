@@ -1,7 +1,9 @@
 # 实时基金估值 (Real-time Fund Valuation)
 
 一个基于 Next.js 开发的纯前端基金估值与重仓股实时追踪工具。采用玻璃拟态设计（Glassmorphism），支持移动端适配。
-预览地址：[https://hzm0321.github.io/real-time-fund/](https://hzm0321.github.io/real-time-fund/)
+预览地址：  
+1. [https://hzm0321.github.io/real-time-fund/](https://hzm0321.github.io/real-time-fund/)
+2. [https://fund.cc.cd/](https://fund.cc.cd/) （加速国内访问）
 
 ## ✨ 特性
 
@@ -46,8 +48,9 @@
   - `NEXT_PUBLIC_SUPABASE_URL`：Supabase 项目 URL
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`：Supabase 匿名公钥
   - `NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY`：Web3Forms Access Key
+  - `NEXT_PUBLIC_GA_ID`：Google Analytics Measurement ID（形如 `G-xxxx`）
 
-注：如不使用登录和反馈功能，可无需设置
+注：如不使用登录、反馈或 GA 统计功能，可不设置对应变量
 
 4. 运行开发服务器：
    ```bash
@@ -78,6 +81,7 @@
 
 本项目已配置 GitHub Actions。每次推送到 `main` 分支时，会自动执行构建并部署到 GitHub Pages。
 如需使用 GitHub Actions 部署，请在 GitHub 项目 Settings → Secrets and variables → Actions 中创建对应的 Repository secrets（字段名称与 `.env.local` 保持一致）。
+包括：`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY`、`NEXT_PUBLIC_GA_ID`。
 
 若要手动构建：
 ```bash
@@ -93,7 +97,7 @@ npm run build
 ```bash
 docker build -t real-time-fund .
 # 或通过 --build-arg 传入，例如：
-# docker build -t real-time-fund --build-arg NEXT_PUBLIC_SUPABASE_URL=xxx --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx .
+# docker build -t real-time-fund --build-arg NEXT_PUBLIC_SUPABASE_URL=xxx --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx --build-arg NEXT_PUBLIC_GA_ID=G-xxxx .
 ```
 
 2. 启动容器

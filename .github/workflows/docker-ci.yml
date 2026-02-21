@@ -20,6 +20,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY=${{ secrets.NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY }}
+          NEXT_PUBLIC_GA_ID=${{ secrets.NEXT_PUBLIC_GA_ID }}
           EOF
 
       - name: Build Dockerfile image
@@ -53,6 +54,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY=${{ secrets.NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY }}
+          NEXT_PUBLIC_GA_ID=${{ secrets.NEXT_PUBLIC_GA_ID }}
           EOF
 
       - name: Docker Compose up

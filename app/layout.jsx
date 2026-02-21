@@ -8,7 +8,7 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  const GA_ID = 'G-PD2JWJHVEM'; // 请在此处替换您的 Google Analytics ID
+  const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
   return (
     <html lang="zh-CN">
