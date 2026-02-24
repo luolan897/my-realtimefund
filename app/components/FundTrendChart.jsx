@@ -35,6 +35,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const chartRef = useRef(null);
+  const hoverTimeoutRef = useRef(null);
 
   useEffect(() => {
     // If collapsed, don't fetch data unless we have no data yet
@@ -198,7 +199,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
         },
         y: {
           display: true,
-          position: 'right',
+          position: 'left',
           grid: {
             color: '#1f2937',
             drawBorder: false,
@@ -217,8 +218,42 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
         mode: 'index',
         intersect: false,
       },
-      onHover: (event, chartElement) => {
-        event.native.target.style.cursor = chartElement[0] ? 'crosshair' : 'default';
+      onHover: (event, chartElement, chart) => {
+        const target = event?.native?.target;
+        if (target) {
+          target.style.cursor = chartElement[0] ? 'crosshair' : 'default';
+        }
+
+        const currentChart = chart || chartRef.current;
+        if (!currentChart) return;
+
+        if (hoverTimeoutRef.current) {
+          clearTimeout(hoverTimeoutRef.current);
+          hoverTimeoutRef.current = null;
+        }
+
+        if (chartElement[0]) {
+          hoverTimeoutRef.current = setTimeout(() => {
+            const c = chartRef.current || currentChart;
+            if (!c) return;
+            c.setActiveElements([]);
+            if (c.tooltip) {
+              c.tooltip.setActiveElements([], { x: 0, y: 0 });
+            }
+            c.update();
+            if (target) {
+              target.style.cursor = 'default';
+            }
+          }, 2000);
+        }
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
       }
     };
   }, []);
@@ -360,10 +395,10 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
                const valueStr = (typeof value === 'number' ? value.toFixed(2) : value) + '%';
                const valWidth = ctx.measureText(valueStr).width + 8;
                ctx.fillStyle = primaryColor;
-               ctx.fillRect(rightX - valWidth, y - 8, valWidth, 16);
+               ctx.fillRect(leftX, y - 8, valWidth, 16);
                ctx.fillStyle = '#0f172a'; // --background
                ctx.textAlign = 'center';
-               ctx.fillText(valueStr, rightX - valWidth / 2, y);
+               ctx.fillText(valueStr, leftX + valWidth / 2, y);
            }
         }
 
