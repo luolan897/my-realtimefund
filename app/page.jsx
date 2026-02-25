@@ -642,8 +642,8 @@ export default function HomePage() {
     })
     .sort((a, b) => {
       if (sortBy === 'yield') {
-        const valA = typeof a.estGszzl === 'number' ? a.estGszzl : (Number(a.gszzl) || 0);
-        const valB = typeof b.estGszzl === 'number' ? b.estGszzl : (Number(b.gszzl) || 0);
+        const valA = typeof a.estGszzl === 'number' ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
+        const valB = typeof b.estGszzl === 'number' ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
         return sortOrder === 'asc' ? valA - valB : valB - valA;
       }
       if (sortBy === 'holding') {
