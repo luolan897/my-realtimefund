@@ -9,6 +9,7 @@ import { glass } from '@dicebear/collection';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { isNumber, isString, isPlainObject } from 'lodash';
 import Announcement from "./components/Announcement";
 import { Stat } from "./components/Common";
 import FundTrendChart from "./components/FundTrendChart";
@@ -36,6 +37,7 @@ import TransactionHistoryModal from "./components/TransactionHistoryModal";
 import AddHistoryModal from "./components/AddHistoryModal";
 import UpdatePromptModal from "./components/UpdatePromptModal";
 import WeChatModal from "./components/WeChatModal";
+import DcaModal from "./components/DcaModal";
 import githubImg from "./assets/github.svg";
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { recordValuation, getAllValuationSeries, clearFund } from './lib/valuationTimeseries';
@@ -171,7 +173,7 @@ function GroupSummary({ funds, holdings, groupName, getProfit, stickyTop }) {
         }
         if (profit.profitTotal !== null) {
           totalHoldingReturn += profit.profitTotal;
-          if (holding && typeof holding.cost === 'number' && typeof holding.share === 'number') {
+          if (holding && isNumber(holding.cost) && isNumber(holding.share)) {
             totalCost += holding.cost * holding.share;
           }
         }
@@ -419,11 +421,13 @@ export default function HomePage() {
   const [holdingModal, setHoldingModal] = useState({ open: false, fund: null });
   const [actionModal, setActionModal] = useState({ open: false, fund: null });
   const [tradeModal, setTradeModal] = useState({ open: false, fund: null, type: 'buy' }); // type: 'buy' | 'sell'
+  const [dcaModal, setDcaModal] = useState({ open: false, fund: null });
   const [clearConfirm, setClearConfirm] = useState(null); // { fund }
   const [donateOpen, setDonateOpen] = useState(false);
   const [holdings, setHoldings] = useState({}); // { [code]: { share: number, cost: number } }
   const [pendingTrades, setPendingTrades] = useState([]); // [{ id, fundCode, share, date, ... }]
   const [transactions, setTransactions] = useState({}); // { [code]: [{ id, type, amount, share, price, date, timestamp }] }
+  const [dcaPlans, setDcaPlans] = useState({}); // { [code]: { amount, feeRate, cycle, firstDate, enabled } }
   const [historyModal, setHistoryModal] = useState({ open: false, fund: null });
   const [addHistoryModal, setAddHistoryModal] = useState({ open: false, fund: null });
   const [percentModes, setPercentModes] = useState({}); // { [code]: boolean }
@@ -556,10 +560,10 @@ export default function HomePage() {
 
   // 计算持仓收益
   const getHoldingProfit = (fund, holding) => {
-    if (!holding || typeof holding.share !== 'number') return null;
+    if (!holding || !isNumber(holding.share)) return null;
 
     const hasTodayData = fund.jzrq === todayStr;
-    const hasTodayValuation = typeof fund.gztime === 'string' && fund.gztime.startsWith(todayStr);
+    const hasTodayValuation = isString(fund.gztime) && fund.gztime.startsWith(todayStr);
     const canCalcTodayProfit = hasTodayData || hasTodayValuation;
 
     // 如果是交易日且9点以后，且今日净值未出，则强制使用估值（隐藏涨跌幅列模式）
@@ -577,8 +581,8 @@ export default function HomePage() {
         const amount = holding.share * currentNav;
         // 优先用 zzl (真实涨跌幅), 降级用 gszzl
         // 若 gztime 日期 > jzrq，说明估值更新晚于净值日期，优先使用 gszzl 计算当日盈亏
-        const gz = typeof fund.gztime === 'string' ? toTz(fund.gztime) : null;
-        const jz = typeof fund.jzrq === 'string' ? toTz(fund.jzrq) : null;
+        const gz = isString(fund.gztime) ? toTz(fund.gztime) : null;
+        const jz = isString(fund.jzrq) ? toTz(fund.jzrq) : null;
         const preferGszzl =
           !!gz &&
           !!jz &&
@@ -602,7 +606,7 @@ export default function HomePage() {
       // 否则使用估值
       currentNav = fund.estPricedCoverage > 0.05
         ? fund.estGsz
-        : (typeof fund.gsz === 'number' ? fund.gsz : Number(fund.dwjz));
+        : (isNumber(fund.gsz) ? fund.gsz : Number(fund.dwjz));
 
       if (!currentNav) return null;
 
@@ -620,7 +624,7 @@ export default function HomePage() {
     const amount = holding.share * currentNav;
 
     // 总收益 = (当前净值 - 成本价) * 份额
-    const profitTotal = typeof holding.cost === 'number'
+    const profitTotal = isNumber(holding.cost)
       ? (currentNav - holding.cost) * holding.share
       : null;
 
@@ -642,8 +646,8 @@ export default function HomePage() {
     })
     .sort((a, b) => {
       if (sortBy === 'yield') {
-        const valA = typeof a.estGszzl === 'number' ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
-        const valB = typeof b.estGszzl === 'number' ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
+        const valA = isNumber(a.estGszzl) ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
+        const valB = isNumber(b.estGszzl) ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
         return sortOrder === 'asc' ? valA - valB : valB - valA;
       }
       if (sortBy === 'holding') {
@@ -704,6 +708,8 @@ export default function HomePage() {
       setTradeModal({ open: true, fund, type });
     } else if (type === 'history') {
       setHistoryModal({ open: true, fund });
+    } else if (type === 'dca') {
+      setDcaModal({ open: true, fund });
     }
   };
 
@@ -772,6 +778,7 @@ export default function HomePage() {
             price: result.value,
             date: result.date, // 使用获取到净值的日期
             isAfter3pm: trade.isAfter3pm,
+            isDca: !!trade.isDca,
             timestamp: Date.now()
         });
       }
@@ -845,6 +852,7 @@ export default function HomePage() {
         price: data.price,
         date: data.date,
         isAfter3pm: false, // 历史记录通常不需要此标记，或者默认为 false
+        isDca: false,
         timestamp: data.timestamp || Date.now()
       };
       // 按时间倒序排列
@@ -872,6 +880,7 @@ export default function HomePage() {
             feeValue: data.feeValue,
             date: data.date,
             isAfter3pm: data.isAfter3pm,
+            isDca: false,
             timestamp: Date.now()
         };
 
@@ -918,6 +927,7 @@ export default function HomePage() {
         price: data.price,
         date: data.date,
         isAfter3pm: data.isAfter3pm,
+        isDca: false,
         timestamp: Date.now()
       };
       const next = [record, ...current];
@@ -977,6 +987,8 @@ export default function HomePage() {
       setToast((prev) => ({ ...prev, show: false }));
     }, 3000);
   };
+
+  // 定投计划自动生成买入队列的逻辑会在 storageHelper 定义之后实现
 
   const handleOpenLogin = () => {
     setUserMenuOpen(false);
@@ -1125,7 +1137,7 @@ export default function HomePage() {
             parsedNames = [];
           }
           parsedNames.forEach((name) => {
-            if (name && typeof name === 'string') {
+            if (isString(name)) {
               allNames.add(name.trim());
             }
           });
@@ -1352,7 +1364,7 @@ export default function HomePage() {
 
   const storageHelper = useMemo(() => {
     // 仅以下 key 参与云端同步；fundValuationTimeseries 不同步到云端（测试中功能，暂不同步）
-    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'transactions', 'viewMode']);
+    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'transactions', 'viewMode', 'dcaPlans']);
     const triggerSync = (key, prevValue, nextValue) => {
       if (keys.has(key)) {
         // 标记为脏数据
@@ -1399,7 +1411,7 @@ export default function HomePage() {
 
   useEffect(() => {
     // 仅以下 key 的变更会触发云端同步；fundValuationTimeseries 不在其中
-    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode']);
+    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode', 'dcaPlans']);
     const onStorage = (e) => {
       if (!e.key) return;
       if (e.key === 'localUpdatedAt') {
@@ -1466,6 +1478,104 @@ export default function HomePage() {
       return next;
     });
   };
+
+  const scheduleDcaTrades = useCallback(() => {
+    if (!isPlainObject(dcaPlans)) return;
+    const codesSet = new Set(funds.map((f) => f.code));
+    if (codesSet.size === 0) return;
+
+    const today = toTz(todayStr).startOf('day');
+    const nextPlans = { ...dcaPlans };
+    const newPending = [];
+
+    Object.entries(dcaPlans).forEach(([code, plan]) => {
+      if (!plan || !plan.enabled) return;
+      if (!codesSet.has(code)) return;
+
+      const amount = Number(plan.amount);
+      const feeRate = Number(plan.feeRate) || 0;
+      if (!amount || amount <= 0) return;
+
+      const cycle = plan.cycle || 'monthly';
+      if (!plan.firstDate) return;
+
+      const first = toTz(plan.firstDate).startOf('day');
+      if (today.isBefore(first, 'day')) return;
+
+      const last = plan.lastDate ? toTz(plan.lastDate).startOf('day') : null;
+
+      // 回溯补单：从 lastDate (若不存在则从 firstDate 前一天) 开始，按周期一直推到今天
+      let anchor = last ? last : first.clone().subtract(1, 'day');
+      let current = anchor;
+      let lastGenerated = null;
+
+      const stepOnce = () => {
+        if (cycle === 'daily') return current.add(1, 'day');
+        if (cycle === 'weekly') return current.add(1, 'week');
+        if (cycle === 'biweekly') return current.add(2, 'week');
+        if (cycle === 'monthly') return current.add(1, 'month');
+        return current.add(1, 'day');
+      };
+
+      // 循环生成所有 <= today 的应扣款日
+      while (true) {
+        current = stepOnce();
+        if (current.isAfter(today, 'day')) break;
+        if (current.isBefore(first, 'day')) continue;
+
+        const dateStr = current.format('YYYY-MM-DD');
+
+        const pending = {
+          id: `dca_${code}_${dateStr}_${Date.now()}`,
+          fundCode: code,
+          fundName: (funds.find(f => f.code === code) || {}).name,
+          type: 'buy',
+          share: null,
+          amount,
+          feeRate,
+          feeMode: undefined,
+          feeValue: undefined,
+          date: dateStr,
+          isAfter3pm: false,
+          isDca: true,
+          timestamp: Date.now()
+        };
+        newPending.push(pending);
+        lastGenerated = current;
+      }
+
+      if (lastGenerated) {
+        nextPlans[code] = {
+          ...plan,
+          lastDate: lastGenerated.format('YYYY-MM-DD')
+        };
+      }
+    });
+
+    if (newPending.length === 0) {
+      if (JSON.stringify(nextPlans) !== JSON.stringify(dcaPlans)) {
+        setDcaPlans(nextPlans);
+        storageHelper.setItem('dcaPlans', JSON.stringify(nextPlans));
+      }
+      return;
+    }
+
+    setDcaPlans(nextPlans);
+    storageHelper.setItem('dcaPlans', JSON.stringify(nextPlans));
+
+    setPendingTrades(prev => {
+      const merged = [...(prev || []), ...newPending];
+      storageHelper.setItem('pendingTrades', JSON.stringify(merged));
+      return merged;
+    });
+
+    showToast(`已生成 ${newPending.length} 笔定投买入`, 'success');
+  }, [dcaPlans, funds, todayStr, storageHelper]);
+
+  useEffect(() => {
+    if (!isTradingDay) return;
+    scheduleDcaTrades();
+  }, [isTradingDay, scheduleDcaTrades]);
 
   const handleAddGroup = (name) => {
     const newGroup = {
@@ -1597,12 +1707,16 @@ export default function HomePage() {
       }
       // 加载持仓数据
       const savedHoldings = JSON.parse(localStorage.getItem('holdings') || '{}');
-      if (savedHoldings && typeof savedHoldings === 'object') {
+      if (isPlainObject(savedHoldings)) {
         setHoldings(savedHoldings);
       }
       const savedTransactions = JSON.parse(localStorage.getItem('transactions') || '{}');
-      if (savedTransactions && typeof savedTransactions === 'object') {
+      if (isPlainObject(savedTransactions)) {
         setTransactions(savedTransactions);
+      }
+      const savedDcaPlans = JSON.parse(localStorage.getItem('dcaPlans') || '{}');
+      if (isPlainObject(savedDcaPlans)) {
+        setDcaPlans(savedDcaPlans);
       }
       const savedViewMode = localStorage.getItem('viewMode');
       if (savedViewMode === 'card' || savedViewMode === 'list') {
@@ -1696,14 +1810,14 @@ export default function HomePage() {
       .channel(`user-configs-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
         const incoming = payload?.new?.data;
-        if (!incoming || typeof incoming !== 'object') return;
+        if (!isPlainObject(incoming)) return;
         const incomingComparable = getComparablePayload(incoming);
         if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
         await applyCloudConfig(incoming, payload.new.updated_at);
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
         const incoming = payload?.new?.data;
-        if (!incoming || typeof incoming !== 'object') return;
+        if (!isPlainObject(incoming)) return;
         const incomingComparable = getComparablePayload(incoming);
         if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
         await applyCloudConfig(incoming, payload.new.updated_at);
@@ -2068,7 +2182,7 @@ export default function HomePage() {
 
   const requestRemoveFund = (fund) => {
     const h = holdings[fund.code];
-    const hasHolding = h && typeof h.share === 'number' && h.share > 0;
+    const hasHolding = h && isNumber(h.share) && h.share > 0;
     if (hasHolding) {
       setFundDeleteConfirm({ code: fund.code, name: fund.name });
     } else {
@@ -2210,6 +2324,15 @@ export default function HomePage() {
       delete next[removeCode];
       return next;
     });
+
+    // 同步删除该基金的定投计划
+    setDcaPlans(prev => {
+      if (!prev || !prev[removeCode]) return prev;
+      const next = { ...prev };
+      delete next[removeCode];
+      storageHelper.setItem('dcaPlans', JSON.stringify(next));
+      return next;
+    });
   };
 
   const manualRefresh = async () => {
@@ -2238,7 +2361,7 @@ export default function HomePage() {
   };
 
   function getComparablePayload(payload) {
-    if (!payload || typeof payload !== 'object') return '';
+    if (!isPlainObject(payload)) return '';
     const rawFunds = Array.isArray(payload.funds) ? payload.funds : [];
     const fundCodes = rawFunds
       .map((fund) => normalizeCode(fund?.code || fund?.CODE))
@@ -2262,7 +2385,7 @@ export default function HomePage() {
           .map((group) => {
             const id = normalizeCode(group?.id);
             if (!id) return null;
-            const name = typeof group?.name === 'string' ? group.name : '';
+            const name = isString(group?.name) ? group.name : '';
             const codes = Array.isArray(group?.codes)
               ? Array.from(new Set(group.codes.map(normalizeCode).filter((code) => uniqueFundCodes.includes(code)))).sort()
               : [];
@@ -2272,9 +2395,7 @@ export default function HomePage() {
           .sort((a, b) => a.id.localeCompare(b.id))
       : [];
 
-    const holdingsSource = payload.holdings && typeof payload.holdings === 'object' && !Array.isArray(payload.holdings)
-      ? payload.holdings
-      : {};
+    const holdingsSource = isPlainObject(payload.holdings) ? payload.holdings : {};
     const holdings = {};
     Object.keys(holdingsSource)
       .map(normalizeCode)
@@ -2303,20 +2424,19 @@ export default function HomePage() {
               feeMode: trade?.feeMode || '',
               feeValue: normalizeNumber(trade?.feeValue),
               date: trade?.date || '',
-              isAfter3pm: !!trade?.isAfter3pm
+              isAfter3pm: !!trade?.isAfter3pm,
+              isDca: !!trade?.isDca
             };
           })
           .filter((trade) => trade && uniqueFundCodes.includes(trade.fundCode))
           .sort((a, b) => {
-            const keyA = a.id || `${a.fundCode}|${a.type}|${a.date}|${a.share ?? ''}|${a.amount ?? ''}|${a.feeMode}|${a.feeValue ?? ''}|${a.feeRate ?? ''}|${a.isAfter3pm ? 1 : 0}`;
-            const keyB = b.id || `${b.fundCode}|${b.type}|${b.date}|${b.share ?? ''}|${b.amount ?? ''}|${b.feeMode}|${b.feeValue ?? ''}|${b.feeRate ?? ''}|${b.isAfter3pm ? 1 : 0}`;
+            const keyA = a.id || `${a.fundCode}|${a.type}|${a.date}|${a.share ?? ''}|${a.amount ?? ''}|${a.feeMode}|${a.feeValue ?? ''}|${a.feeRate ?? ''}|${a.isAfter3pm ? 1 : 0}|${a.isDca ? 1 : 0}`;
+            const keyB = b.id || `${b.fundCode}|${b.type}|${b.date}|${b.share ?? ''}|${b.amount ?? ''}|${b.feeMode}|${b.feeValue ?? ''}|${b.feeRate ?? ''}|${b.isAfter3pm ? 1 : 0}|${b.isDca ? 1 : 0}`;
             return keyA.localeCompare(keyB);
           })
       : [];
 
-    const transactionsSource = payload.transactions && typeof payload.transactions === 'object' && !Array.isArray(payload.transactions)
-      ? payload.transactions
-      : {};
+    const transactionsSource = isPlainObject(payload.transactions) ? payload.transactions : {};
     const transactions = {};
     Object.keys(transactionsSource)
       .map(normalizeCode)
@@ -2333,11 +2453,41 @@ export default function HomePage() {
             const price = normalizeNumber(t?.price);
             const date = t?.date || '';
             const timestamp = Number.isFinite(t?.timestamp) ? t.timestamp : 0;
-            return { id, type, share, amount, price, date, timestamp };
+            const isDca = !!t?.isDca;
+            return { id, type, share, amount, price, date, timestamp, isDca };
           })
           .filter((t) => t.id || t.timestamp)
           .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         if (normalized.length > 0) transactions[code] = normalized;
+      });
+
+    const dcaSource = isPlainObject(payload.dcaPlans) ? payload.dcaPlans : {};
+    const dcaPlans = {};
+    Object.keys(dcaSource)
+      .map(normalizeCode)
+      .filter((code) => uniqueFundCodes.includes(code))
+      .sort()
+      .forEach((code) => {
+        const plan = dcaSource[code] || {};
+        const amount = normalizeNumber(plan.amount);
+        const feeRate = normalizeNumber(plan.feeRate);
+        const cycle = ['daily', 'weekly', 'biweekly', 'monthly'].includes(plan.cycle) ? plan.cycle : '';
+        const firstDate = plan.firstDate ? String(plan.firstDate) : '';
+        const enabled = !!plan.enabled;
+        const weeklyDay = normalizeNumber(plan.weeklyDay);
+        const monthlyDay = normalizeNumber(plan.monthlyDay);
+        const lastDate = plan.lastDate ? String(plan.lastDate) : '';
+        if (amount === null && feeRate === null && !cycle && !firstDate && !enabled && weeklyDay === null && monthlyDay === null && !lastDate) return;
+        dcaPlans[code] = {
+          amount,
+          feeRate,
+          cycle,
+          firstDate,
+          enabled,
+          weeklyDay: weeklyDay !== null ? weeklyDay : null,
+          monthlyDay: monthlyDay !== null ? monthlyDay : null,
+          lastDate
+        };
       });
 
     const viewMode = payload.viewMode === 'list' ? 'list' : 'card';
@@ -2352,6 +2502,7 @@ export default function HomePage() {
       holdings,
       pendingTrades,
       transactions,
+      dcaPlans,
       viewMode
     });
   }
@@ -2390,6 +2541,9 @@ export default function HomePage() {
       if (!keys || keys.has('transactions')) {
         all.transactions = JSON.parse(localStorage.getItem('transactions') || '{}');
       }
+      if (!keys || keys.has('dcaPlans')) {
+        all.dcaPlans = JSON.parse(localStorage.getItem('dcaPlans') || '{}');
+      }
 
       // 如果是全量收集（keys 为 null），进行完整的数据清洗和验证逻辑
       if (!keys) {
@@ -2399,17 +2553,17 @@ export default function HomePage() {
             : []
         );
 
-        const cleanedHoldings = all.holdings && typeof all.holdings === 'object' && !Array.isArray(all.holdings)
+        const cleanedHoldings = isPlainObject(all.holdings)
           ? Object.entries(all.holdings).reduce((acc, [code, value]) => {
-            if (!fundCodes.has(code) || !value || typeof value !== 'object') return acc;
-            const parsedShare = typeof value.share === 'number'
+            if (!fundCodes.has(code) || !isPlainObject(value)) return acc;
+            const parsedShare = isNumber(value.share)
               ? value.share
-              : typeof value.share === 'string'
+              : isString(value.share)
                 ? Number(value.share)
                 : NaN;
-            const parsedCost = typeof value.cost === 'number'
+            const parsedCost = isNumber(value.cost)
               ? value.cost
-              : typeof value.cost === 'string'
+              : isString(value.cost)
                 ? Number(value.cost)
                 : NaN;
             const nextShare = Number.isFinite(parsedShare) ? parsedShare : null;
@@ -2440,6 +2594,14 @@ export default function HomePage() {
             }))
           : [];
 
+        const cleanedDcaPlans = isPlainObject(all.dcaPlans)
+          ? Object.entries(all.dcaPlans).reduce((acc, [code, plan]) => {
+              if (!fundCodes.has(code) || !isPlainObject(plan)) return acc;
+              acc[code] = plan;
+              return acc;
+            }, {})
+          : {};
+
         return {
           funds: all.funds,
           favorites: cleanedFavorites,
@@ -2449,6 +2611,8 @@ export default function HomePage() {
           refreshMs: all.refreshMs,
           holdings: cleanedHoldings,
           pendingTrades: all.pendingTrades,
+          transactions: all.transactions,
+          dcaPlans: cleanedDcaPlans,
           viewMode: all.viewMode
         };
       }
@@ -2463,9 +2627,12 @@ export default function HomePage() {
         favorites: [],
         groups: [],
         collapsedCodes: [],
+        collapsedTrends: [],
         refreshMs: 30000,
         holdings: {},
         pendingTrades: [],
+        transactions: {},
+        dcaPlans: {},
         viewMode: 'card',
         exportedAt: nowInTz().toISOString()
       };
@@ -2473,7 +2640,7 @@ export default function HomePage() {
   };
 
   const applyCloudConfig = async (cloudData, cloudUpdatedAt) => {
-    if (!cloudData || typeof cloudData !== 'object') return;
+    if (!isPlainObject(cloudData)) return;
     skipSyncRef.current = true;
     try {
       if (cloudUpdatedAt) {
@@ -2505,7 +2672,7 @@ export default function HomePage() {
         applyViewMode(cloudData.viewMode);
       }
 
-      const nextHoldings = cloudData.holdings && typeof cloudData.holdings === 'object' ? cloudData.holdings : {};
+      const nextHoldings = isPlainObject(cloudData.holdings) ? cloudData.holdings : {};
       setHoldings(nextHoldings);
       storageHelper.setItem('holdings', JSON.stringify(nextHoldings));
 
@@ -2515,9 +2682,18 @@ export default function HomePage() {
       setPendingTrades(nextPendingTrades);
       storageHelper.setItem('pendingTrades', JSON.stringify(nextPendingTrades));
 
-      const nextTransactions = cloudData.transactions && typeof cloudData.transactions === 'object' ? cloudData.transactions : {};
+      const nextTransactions = isPlainObject(cloudData.transactions) ? cloudData.transactions : {};
       setTransactions(nextTransactions);
       storageHelper.setItem('transactions', JSON.stringify(nextTransactions));
+
+      const cloudDca = isPlainObject(cloudData.dcaPlans) ? cloudData.dcaPlans : {};
+      const nextDcaPlans = Object.entries(cloudDca).reduce((acc, [code, plan]) => {
+        if (!nextFundCodes.has(code) || !isPlainObject(plan)) return acc;
+        acc[code] = plan;
+        return acc;
+      }, {});
+      setDcaPlans(nextDcaPlans);
+      storageHelper.setItem('dcaPlans', JSON.stringify(nextDcaPlans));
 
       if (nextFunds.length) {
         const codes = Array.from(new Set(nextFunds.map((f) => f.code)));
@@ -2548,7 +2724,7 @@ export default function HomePage() {
         setCloudConfigModal({ open: true, userId, type: 'empty' });
         return;
       }
-      if (data?.data && typeof data.data === 'object' && Object.keys(data.data).length > 0) {
+      if (data?.data && isPlainObject(data.data) && Object.keys(data.data).length > 0) {
         const localPayload = collectLocalPayload();
         const localComparable = getComparablePayload(localPayload);
         const cloudComparable = getComparablePayload(data.data);
@@ -2669,6 +2845,7 @@ export default function HomePage() {
         holdings: JSON.parse(localStorage.getItem('holdings') || '{}'),
         pendingTrades: JSON.parse(localStorage.getItem('pendingTrades') || '[]'),
         transactions: JSON.parse(localStorage.getItem('transactions') || '{}'),
+        dcaPlans: JSON.parse(localStorage.getItem('dcaPlans') || '{}'),
         exportedAt: nowInTz().toISOString()
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -2715,7 +2892,7 @@ export default function HomePage() {
       if (!file) return;
       const text = await file.text();
       const data = JSON.parse(text);
-      if (data && typeof data === 'object') {
+      if (isPlainObject(data)) {
         // 从 localStorage 读取最新数据进行合并，防止状态滞后导致的数据丢失
         const currentFunds = JSON.parse(localStorage.getItem('funds') || '[]');
         const currentFavorites = JSON.parse(localStorage.getItem('favorites') || '[]');
@@ -2723,6 +2900,7 @@ export default function HomePage() {
         const currentCollapsed = JSON.parse(localStorage.getItem('collapsedCodes') || '[]');
         const currentTrends = JSON.parse(localStorage.getItem('collapsedTrends') || '[]');
         const currentPendingTrades = JSON.parse(localStorage.getItem('pendingTrades') || '[]');
+        const currentDcaPlans = JSON.parse(localStorage.getItem('dcaPlans') || '{}');
 
         let mergedFunds = currentFunds;
         let appendedCodes = [];
@@ -2773,7 +2951,7 @@ export default function HomePage() {
           storageHelper.setItem('collapsedTrends', JSON.stringify(mergedTrends));
         }
 
-        if (typeof data.refreshMs === 'number' && data.refreshMs >= 5000) {
+        if (isNumber(data.refreshMs) && data.refreshMs >= 5000) {
           setRefreshMs(data.refreshMs);
           setTempSeconds(Math.round(data.refreshMs / 1000));
           storageHelper.setItem('refreshMs', String(data.refreshMs));
@@ -2782,13 +2960,13 @@ export default function HomePage() {
           applyViewMode(data.viewMode);
         }
 
-        if (data.holdings && typeof data.holdings === 'object') {
+        if (isPlainObject(data.holdings)) {
           const mergedHoldings = { ...JSON.parse(localStorage.getItem('holdings') || '{}'), ...data.holdings };
           setHoldings(mergedHoldings);
           storageHelper.setItem('holdings', JSON.stringify(mergedHoldings));
         }
 
-        if (data.transactions && typeof data.transactions === 'object') {
+        if (isPlainObject(data.transactions)) {
              const currentTransactions = JSON.parse(localStorage.getItem('transactions') || '{}');
              const mergedTransactions = { ...currentTransactions };
              Object.entries(data.transactions).forEach(([code, txs]) => {
@@ -2822,6 +3000,12 @@ export default function HomePage() {
           const mergedPending = Array.from(mergedPendingMap.values());
           setPendingTrades(mergedPending);
           storageHelper.setItem('pendingTrades', JSON.stringify(mergedPending));
+        }
+
+        if (isPlainObject(data.dcaPlans)) {
+          const mergedDca = { ...(isPlainObject(currentDcaPlans) ? currentDcaPlans : {}), ...data.dcaPlans };
+          setDcaPlans(mergedDca);
+          storageHelper.setItem('dcaPlans', JSON.stringify(mergedDca));
         }
 
         // 导入成功后，仅刷新新追加的基金
@@ -2858,6 +3042,7 @@ export default function HomePage() {
       holdingModal.open ||
       actionModal.open ||
       tradeModal.open ||
+      dcaModal.open ||
       !!clearConfirm ||
       donateOpen ||
       !!fundDeleteConfirm ||
@@ -3632,7 +3817,7 @@ export default function HomePage() {
                                         </div>
                                         <div className="table-cell text-right change-cell">
                                           <span className={f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : '')} style={{ fontWeight: 700 }}>
-                                            {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (typeof f.gszzl === 'number' ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
+                                            {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (isNumber(f.gszzl) ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
                                           </span>
                                         </div>
                                       </>
@@ -3807,13 +3992,21 @@ export default function HomePage() {
                                     <>
                                       {(() => {
                                         const hasTodayData = f.jzrq === todayStr;
-                                        const shouldHideChange = isTradingDay && !hasTodayData;
+                                        let isYesterdayChange = false;
+                                        if (!hasTodayData && isString(f.gztime) && isString(f.jzrq)) {
+                                          const gzDate = toTz(f.gztime).startOf('day');
+                                          const jzDate = toTz(f.jzrq).startOf('day');
+                                          if (gzDate.clone().subtract(1, 'day').isSame(jzDate, 'day')) {
+                                            isYesterdayChange = true;
+                                          }
+                                        }
+                                        const shouldHideChange = isTradingDay && !hasTodayData && !isYesterdayChange;
 
                                         if (shouldHideChange) return null;
 
                                         return (
                                           <Stat
-                                            label="涨跌幅"
+                                            label={isYesterdayChange ? '昨日涨跌幅' : '涨跌幅'}
                                             value={f.zzl !== undefined ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%` : ''}
                                             delta={f.zzl}
                                           />
@@ -3822,7 +4015,7 @@ export default function HomePage() {
                                       <Stat label="估值净值" value={f.estPricedCoverage > 0.05 ? f.estGsz.toFixed(4) : (f.gsz ?? '—')} />
                                       <Stat
                                         label="估值涨跌幅"
-                                        value={f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (typeof f.gszzl === 'number' ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
+                                        value={f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (isNumber(f.gszzl) ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
                                         delta={f.estPricedCoverage > 0.05 ? f.estGszzl : (Number(f.gszzl) || 0)}
                                       />
                                     </>
@@ -3941,7 +4134,7 @@ export default function HomePage() {
                                             <div className="item" key={idx}>
                                               <span className="name">{h.name}</span>
                                               <div className="values">
-                                                {typeof h.change === 'number' && (
+                                                {isNumber(h.change) && (
                                                   <span className={`badge ${h.change > 0 ? 'up' : h.change < 0 ? 'down' : ''}`} style={{ marginRight: 8 }}>
                                                     {h.change > 0 ? '+' : ''}{h.change.toFixed(2)}%
                                                   </span>
@@ -4116,6 +4309,39 @@ export default function HomePage() {
                     return next;
                 });
                 showToast('已撤销待处理交易', 'success');
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {dcaModal.open && (
+          <DcaModal
+            fund={dcaModal.fund}
+            plan={dcaPlans[dcaModal.fund?.code]}
+            onClose={() => setDcaModal({ open: false, fund: null })}
+            onConfirm={(config) => {
+              const code = config?.fundCode || dcaModal.fund?.code;
+              if (!code) {
+                setDcaModal({ open: false, fund: null });
+                return;
+              }
+              setDcaPlans(prev => {
+                const next = { ...(prev || {}) };
+                next[code] = {
+                  amount: config.amount,
+                  feeRate: config.feeRate,
+                  cycle: config.cycle,
+                  firstDate: config.firstDate,
+                  weeklyDay: config.weeklyDay ?? null,
+                  monthlyDay: config.monthlyDay ?? null,
+                  enabled: config.enabled !== false
+                };
+                storageHelper.setItem('dcaPlans', JSON.stringify(next));
+                return next;
+              });
+              setDcaModal({ open: false, fund: null });
+              showToast('已保存定投计划', 'success');
             }}
           />
         )}

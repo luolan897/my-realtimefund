@@ -11,6 +11,7 @@ import {
   Filler
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { isNumber } from 'lodash';
 
 ChartJS.register(
   CategoryScale,
@@ -99,7 +100,7 @@ export default function FundIntradayChart({ series = [], referenceNav }) {
         ticks: {
           color: '#9ca3af',
           font: { size: 10 },
-          callback: (v) => (typeof v === 'number' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : v)
+          callback: (v) => (isNumber(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : v)
         }
       }
     },
@@ -206,7 +207,7 @@ export default function FundIntradayChart({ series = [], referenceNav }) {
       }
       if (data && index in data) {
         const val = data[index];
-        const valueStr = typeof val === 'number' ? `${val >= 0 ? '+' : ''}${val.toFixed(2)}%` : String(val);
+        const valueStr = isNumber(val) ? `${val >= 0 ? '+' : ''}${val.toFixed(2)}%` : String(val);
         const vw = ctx.measureText(valueStr).width + 8;
         ctx.fillStyle = prim;
         ctx.fillRect(leftX, y - 8, vw, 16);
